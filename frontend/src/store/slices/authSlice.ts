@@ -1,14 +1,17 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import axios from 'axios';
+import api from '../../utils/api';
 
 interface User {
   id: number;
   email: string;
-  first_name?: string;
-  last_name?: string;
+  first_name: string | null;
+  last_name: string | null;
   currency: string;
   timezone: string;
   role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
 }
 
 interface AuthState {
@@ -36,7 +39,7 @@ export const login = createAsyncThunk(
       formData.append('username', email);
       formData.append('password', password);
 
-      const response = await axios.post('/api/v1/auth/login', formData, {
+      const response = await api.post('/api/v1/auth/login', formData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -67,9 +70,10 @@ export const register = createAsyncThunk(
     timezone?: string;
   }, { rejectWithValue }) => {
     try {
-      const response = await axios.post('/api/v1/auth/signup', userData);
+      const response = await api.post('/api/v1/auth/signup', userData);
       return response.data;
     } catch (error: any) {
+      console.error('Registration error:', error.response?.data || error.message);
       return rejectWithValue(
         error.response?.data?.detail || 'Registration failed. Please try again.'
       );
@@ -88,12 +92,7 @@ export const getUserProfile = createAsyncThunk(
         return rejectWithValue('No authentication token found');
       }
       
-      const response = await axios.get('/api/v1/auth/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
+      const response = await api.get('/api/v1/auth/me');
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
@@ -114,12 +113,7 @@ export const updateProfile = createAsyncThunk(
         return rejectWithValue('No authentication token found');
       }
       
-      const response = await axios.put('/api/v1/auth/me', userData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
+      const response = await api.put('/api/v1/auth/me', userData);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
@@ -135,13 +129,12 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout: (state) => {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
-      state.loading = false;
       state.error = null;
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
     },
     clearError: (state) => {
       state.error = null;
@@ -153,15 +146,14 @@ const authSlice = createSlice({
       state.loading = true;
       state.error = null;
     });
-    builder.addCase(login.fulfilled, (state, action: PayloadAction<{ token: string }>) => {
+    builder.addCase(login.fulfilled, (state, action) => {
       state.loading = false;
-      state.isAuthenticated = true;
       state.token = action.payload.token;
+      state.isAuthenticated = true;
       state.error = null;
     });
     builder.addCase(login.rejected, (state, action) => {
       state.loading = false;
-      state.isAuthenticated = false;
       state.error = action.payload as string;
     });
 
@@ -173,6 +165,7 @@ const authSlice = createSlice({
     builder.addCase(register.fulfilled, (state) => {
       state.loading = false;
       state.error = null;
+      // Do not authenticate user yet - they still need to login
     });
     builder.addCase(register.rejected, (state, action) => {
       state.loading = false;
@@ -192,13 +185,9 @@ const authSlice = createSlice({
     builder.addCase(getUserProfile.rejected, (state, action) => {
       state.loading = false;
       state.error = action.payload as string;
-      // If token is invalid, log out the user
-      if (action.payload === 'Invalid authentication credentials') {
-        state.isAuthenticated = false;
-        state.token = null;
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-      }
+      state.isAuthenticated = false;
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
     });
 
     // Update profile cases
